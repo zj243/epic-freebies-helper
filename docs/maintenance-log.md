@@ -602,3 +602,20 @@
   - `Continue` 点击兜底新增面向 dialog/modal/overlay 容器的浏览器端扫描：优先点击容器内最后一个可见的 `Continue` 按钮，抓不到时再退化成容器内最后一个可见按钮。
   - `_click_purchase_button()` 在所有点击策略都无进展后，会先做一次强复查并再次尝试清理设备弹窗，再决定是否落成 `click_no_effect`。
   - `_log_purchase_button_context()` 改成短超时采样和受控降级，不再让调试信息读取本身触发 30 秒硬超时。
+
+### 2026-05-26 Epic 免费商品即时入库无页面反馈时的领取确认兜底
+
+- 现象：
+  - GitHub Actions 在 `Run Epic Awesome Gamer` 阶段能正常完成登录和登录验证码。
+  - 商品页能识别到 `purchase-cta-button`，按钮文本为 `Get`，但多种点击方式都记录为 `click returned without visible progress`。
+  - 最终报错 `Failed to confirm claim flow for promotions`，导致整次 workflow 以 exit code 1 结束。
+- 根因判断：
+  - Epic 近期免费商品领取流程可能不再稳定进入旧的购物车或 checkout iframe，也可能在点击后直接完成入库但短时间内不给当前商品页可见反馈。
+  - 原逻辑把“页面上看不到购物车、checkout、安全校验或按钮文案变化”直接视为点击无效，没有在该失败分支前查询订单历史。
+- 改动文件：
+  - `app/services/epic_games_service.py`
+  - `docs/maintenance-log.md`
+- 处理结果：
+  - 扩展已领取文案识别，覆盖 `YOU GOT IT`、`NOW IN YOUR LIBRARY`、`ADDED TO YOUR LIBRARY` 等即时入库提示。
+  - 点击购买按钮后改为短轮询等待可确认进展，降低页面状态异步更新造成的误判。
+  - 当点击看似无效时，先轮询 Epic 订单历史确认当前促销商品是否已出现；若已出现则按领取成功处理，不再加入失败列表。

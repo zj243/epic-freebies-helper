@@ -503,6 +503,7 @@ class EpicGames:
             "ALREADY OWNED",
             "VIEW IN LIBRARY",
             "GO TO LIBRARY",
+            "YOU GOT IT",
         ]
 
         if URL_CART_SUCCESS in page.url:
@@ -541,6 +542,10 @@ class EpicGames:
             "IN YOUR LIBRARY",
             "VIEW IN LIBRARY",
             "GO TO LIBRARY",
+            "YOU GOT IT",
+            "NOW IN YOUR LIBRARY",
+            "ADDED TO YOUR LIBRARY",
+            "ITEM IS NOW IN YOUR LIBRARY",
         ]
 
         for marker in button_claim_markers:
@@ -666,6 +671,30 @@ class EpicGames:
 
         return False
 
+    async def _wait_for_purchase_progress(
+        self, page: Page, url: str, timeout_ms: int = 8000
+    ) -> bool:
+        """等待购买按钮点击后的可确认进展。
+
+        参数:
+            page: 当前 Playwright 页面对象。
+            url: 当前促销商品页 URL，用于日志和状态判断。
+            timeout_ms: 最长等待时间，单位毫秒。
+
+        返回:
+            bool: 页面出现购物车、结账、安全校验或已入库状态时返回 True。
+        """
+        elapsed_ms = 0
+
+        while elapsed_ms < timeout_ms:
+            if await self._has_purchase_progress(page, url):
+                return True
+
+            await page.wait_for_timeout(500)
+            elapsed_ms += 500
+
+        return False
+
     @staticmethod
     def _looks_like_checkout_frame(text: str) -> bool:
         normalized = " ".join((text or "").upper().split())
@@ -713,8 +742,6 @@ class EpicGames:
                 logger.warning("Purchase button {} click failed - {} err={!r}", name, url, err)
                 continue
 
-            await page.wait_for_timeout(2500)
-
             if await EpicGames._is_device_not_supported_visible(page):
                 logger.warning(
                     "Device not supported modal appeared after {} click - dismissing - {}",
@@ -724,7 +751,7 @@ class EpicGames:
                 await EpicGames._handle_device_not_supported_modal(page, url, timeout_ms=5000)
                 await page.wait_for_timeout(1500)
 
-            if await self._has_purchase_progress(page, url):
+            if await self._wait_for_purchase_progress(page, url):
                 logger.debug("Purchase button {} click produced progress - {}", name, url)
                 return True
 
@@ -1196,6 +1223,29 @@ class EpicGames:
 
         return False
 
+    async def _wait_for_promotion_in_order_history(
+        self, promotion: PromotionGame, timeout_ms: int = 30000
+    ) -> bool:
+        """轮询订单历史，确认无页面反馈的即时领取是否已完成。
+
+        参数:
+            promotion: 当前待确认的周免商品。
+            timeout_ms: 最长等待时间，单位毫秒。
+
+        返回:
+            bool: 订单历史里出现对应 namespace 或 offerId 时返回 True。
+        """
+        elapsed_ms = 0
+
+        while elapsed_ms < timeout_ms:
+            if await self._is_promotion_in_order_history(promotion):
+                return True
+
+            await self.page.wait_for_timeout(3000)
+            elapsed_ms += 3000
+
+        return False
+
     async def _finalize_unconfirmed_checkout(self, page: Page, promotion: PromotionGame) -> bool:
         url = promotion.url
 
@@ -1526,6 +1576,12 @@ class EpicGames:
             if "CART" in btn_text_upper:
                 logger.debug(f"🛒 Logic: Add To Cart - {url=}")
                 if not await self._click_purchase_button(page, purchase_btn, url):
+                    if await self._wait_for_promotion_in_order_history(promotion):
+                        logger.success(
+                            f"🎉 Confirmed claim via order history after cart click fallback - {url=}"
+                        )
+                        instant_claimed += 1
+                        continue
                     failed_urls.append(url)
                     continue
                 has_pending_cart_items = True
@@ -1542,6 +1598,12 @@ class EpicGames:
                 await EpicGames._handle_device_not_supported_modal(page, url, timeout_ms=5000)
 
             if not await self._click_purchase_button(page, purchase_btn, url):
+                if await self._wait_for_promotion_in_order_history(promotion):
+                    logger.success(
+                        f"🎉 Confirmed claim via order history after click fallback - {url=}"
+                    )
+                    instant_claimed += 1
+                    continue
                 failed_urls.append(url)
                 continue
 
