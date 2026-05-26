@@ -653,3 +653,18 @@
   - purchase iframe 文本探测支持短超时，安全校验探测不再被默认 30 秒超时拖住。
   - 直接 checkout 兜底新增 12 秒预检查；没有快速出现 claimed / security / checkout 状态时立即截图并退出该兜底。
   - 只有预检查确认进入 checkout 或 security 状态后，才继续执行完整即时 checkout 流程，并增加总超时保护。
+
+### 2026-05-26 free-checkout 主页面按钮识别补充
+
+- 现象：
+  - 直接 checkout 兜底能进入 `https://store.epicgames.com/purchase?...#/free-checkout`。
+  - 但 `_active_purchase_container()` 仍只反复提示找不到 purchase iframe 和 `PLACE ORDER` 按钮，最终落入 `direct_checkout_not_ready`。
+- 根因判断：
+  - Epic 的 `#/free-checkout` 流程可能不再使用旧的 `webPurchaseContainer` iframe。
+  - 原按钮扫描逻辑要求先命中旧 checkout 文案组合，导致主页面 React checkout 按钮不会被当作可提交订单的容器处理。
+- 改动文件：
+  - `app/services/epic_games_service.py`
+  - `docs/maintenance-log.md`
+- 处理结果：
+  - 在 Epic `/purchase` / `#/free-checkout` 路由中，允许扫描主页面和 frames 的 checkout 操作按钮。
+  - 新增 `Place Order`、`Confirm Order`、`Complete Order`、`Checkout`、`Get` 等按钮文案匹配，复用现有提交和确认逻辑。
