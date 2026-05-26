@@ -636,3 +636,20 @@
   - 增加直接 checkout URL 构造逻辑。
   - 当商品页购买按钮点击无进展时，自动跳转直接 checkout 链接，并复用现有即时 checkout / 安全校验 / 订单历史确认流程。
   - `Get` 和 `Add to Cart` 两类按钮点击失败分支都接入直接 checkout 兜底。
+
+### 2026-05-26 直接 checkout 未出现容器时的长时间轮询收口
+
+- 现象：
+  - 直接 checkout 兜底触发后，日志出现 `trying direct checkout URL`。
+  - 随后 `_active_purchase_container()` 反复输出 `Primary buttons not found in checkout containers`，持续扫描数十分钟。
+  - 页面没有出现 checkout iframe / Place Order 按钮，但流程仍在 `_handle_instant_checkout()` 内长时间等待。
+- 根因判断：
+  - 直接 checkout URL 并不总能打开有效 checkout 容器；当容器不存在时，不应进入完整即时 checkout 长流程。
+  - `_is_checkout_security_check_visible()` 内部读取 purchase iframe 文本时使用默认超时，在 iframe 不存在的场景下会把每轮探测拖长。
+- 改动文件：
+  - `app/services/epic_games_service.py`
+  - `docs/maintenance-log.md`
+- 处理结果：
+  - purchase iframe 文本探测支持短超时，安全校验探测不再被默认 30 秒超时拖住。
+  - 直接 checkout 兜底新增 12 秒预检查；没有快速出现 claimed / security / checkout 状态时立即截图并退出该兜底。
+  - 只有预检查确认进入 checkout 或 security 状态后，才继续执行完整即时 checkout 流程，并增加总超时保护。
