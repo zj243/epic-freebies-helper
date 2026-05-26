@@ -668,3 +668,19 @@
 - 处理结果：
   - 在 Epic `/purchase` / `#/free-checkout` 路由中，允许扫描主页面和 frames 的 checkout 操作按钮。
   - 新增 `Place Order`、`Confirm Order`、`Complete Order`、`Checkout`、`Get` 等按钮文案匹配，复用现有提交和确认逻辑。
+
+### 2026-05-26 商品页原生点击触发 Firefox driver 崩溃的规避
+
+- 现象：
+  - `Down in Bermuda` 商品页 `purchase-cta-button` 可见且 enabled。
+  - Playwright 执行 `Locator.click()` 时，Node driver 抛出 `TypeError: Cannot read properties of undefined (reading 'childFrames')`。
+  - 随后所有页面操作都变成 `Connection closed while reading from the driver`，浏览器上下文关闭也失败，workflow 直接 exit code 1。
+- 根因判断：
+  - 这是 Playwright Firefox / Camoufox driver 在商品页点击引发导航或 frame 变化时的底层崩溃，不是普通 Python 异常；一旦发生，当前浏览器会话无法继续兜底。
+  - 对当前 `Get` 领取流程，继续先点商品页按钮风险高于收益。
+- 改动文件：
+  - `app/services/epic_games_service.py`
+  - `docs/maintenance-log.md`
+- 处理结果：
+  - 对默认 `Get` / 免费领取分支，改为先走直接 checkout URL，不再先执行商品页原生点击。
+  - direct checkout 和短订单历史确认都失败时，记录失败并继续，不再尝试会触发 Firefox driver 崩溃的商品页 native click。

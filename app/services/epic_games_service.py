@@ -1729,9 +1729,9 @@ class EpicGames:
                 has_pending_cart_items = True
                 continue
 
-            # 6. 默认处理 (盲点逻辑)
-            # 只要不是黑名单，也不是购物车，统统当做 "Get/Purchase" 直接点击！
-            # 不管它写的是 'Get', 'Free', 'Purchase', 'Buy Now'，只要 API 说是免费的，我们就点！
+            # 6. 默认处理：优先走直接 checkout。
+            # Epic 商品页 Get 按钮近期可能触发 Firefox/Playwright 驱动崩溃，
+            # 因此不要先使用商品页原生点击。
             logger.debug(f"⚡️ Logic: Aggressive Click (Text: {btn_text}) - {url=}")
             if await EpicGames._is_device_not_supported_visible(page):
                 logger.warning(
@@ -1739,26 +1739,25 @@ class EpicGames:
                 )
                 await EpicGames._handle_device_not_supported_modal(page, url, timeout_ms=5000)
 
-            if not await self._click_purchase_button(page, purchase_btn, url):
-                if await self._claim_via_direct_purchase_url(page, promotion):
-                    instant_claimed += 1
-                    continue
-                if await self._wait_for_promotion_in_order_history(promotion):
-                    logger.success(
-                        f"🎉 Confirmed claim via order history after click fallback - {url=}"
-                    )
-                    instant_claimed += 1
-                    continue
-                failed_urls.append(url)
+            if await self._claim_via_direct_purchase_url(page, promotion):
+                instant_claimed += 1
                 continue
 
-            await self._handle_device_not_supported_modal(page, url)
-
-            # 点击后，转入即时结账流程
-            if await self._handle_instant_checkout(page, promotion):
+            if await self._wait_for_promotion_in_order_history(promotion, timeout_ms=6000):
+                logger.success(
+                    f"🎉 Confirmed claim via order history before product click - {url=}"
+                )
                 instant_claimed += 1
-            else:
-                failed_urls.append(url)
+                continue
+
+            logger.warning(
+                "Direct checkout fallback did not confirm claim; skipping product-page "
+                "native click to avoid Firefox driver crash - title='{}' url='{}'",
+                game_title,
+                url,
+            )
+            failed_urls.append(url)
+            continue
             # ------------------------------------------------------------
 
         return has_pending_cart_items, instant_claimed, failed_urls
