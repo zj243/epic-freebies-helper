@@ -292,11 +292,10 @@ class EpicGames:
         return ""
 
     @staticmethod
-    async def _purchase_frame_text(page: Page, timeout: int | None = None) -> str:
+    async def _purchase_frame_text(page: Page) -> str:
         with suppress(Exception):
             purchase_frame_body = page.frame_locator(PURCHASE_IFRAME_SELECTOR).first.locator("body")
-            options = {} if timeout is None else {"timeout": timeout}
-            frame_text = await purchase_frame_body.inner_text(**options)
+            frame_text = await purchase_frame_body.inner_text()
             if frame_text:
                 return " ".join(frame_text.upper().split())
         return ""
@@ -1063,11 +1062,11 @@ class EpicGames:
         if await EpicGames._visible_hcaptcha_frame_urls(page):
             return True
 
-        page_text = await EpicGames._page_text(page, timeout=500)
+        page_text = await EpicGames._page_text(page)
         if any(marker in page_text for marker in page_markers):
             return True
 
-        purchase_frame_text = await EpicGames._purchase_frame_text(page, timeout=500)
+        purchase_frame_text = await EpicGames._purchase_frame_text(page)
         return any(marker in purchase_frame_text for marker in purchase_frame_markers)
 
     async def _resolve_checkout_security_check(
@@ -1298,39 +1297,11 @@ class EpicGames:
             )
             return False
 
-        state, _payload = await self._wait_for_purchase_state(
-            page, promotion.url, timeout_ms=12000
-        )
-        if state == "claimed":
-            logger.success(f"🎉 Direct checkout resolved to claimed state - {promotion.url=}")
-            return True
-
-        if state == "pending":
-            logger.warning(
-                "Direct checkout did not expose checkout/security/claimed state quickly - "
-                "title='{}' current_url='{}'",
-                promotion.title,
-                page.url,
+        if await self._handle_instant_checkout(page, promotion):
+            logger.success(
+                f"🎉 Confirmed claim via direct checkout URL - title='{promotion.title}'"
             )
-            await self._capture_purchase_debug(page, "direct_checkout_not_ready", promotion.url)
-        else:
-            try:
-                confirmed = await asyncio.wait_for(
-                    self._handle_instant_checkout(page, promotion), timeout=180
-                )
-            except Exception as err:
-                logger.warning(
-                    "Direct checkout confirmation timed out or failed - title='{}' err={!r}",
-                    promotion.title,
-                    err,
-                )
-                confirmed = False
-
-            if confirmed:
-                logger.success(
-                    f"🎉 Confirmed claim via direct checkout URL - title='{promotion.title}'"
-                )
-                return True
+            return True
 
         if await self._wait_for_promotion_in_order_history(promotion):
             logger.success(
