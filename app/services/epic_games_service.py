@@ -6,7 +6,6 @@
 
 import asyncio
 import json
-import re
 import time
 from contextlib import suppress
 from json import JSONDecodeError
@@ -711,35 +710,6 @@ class EpicGames:
         return any(all(marker in normalized for marker in markers) for markers in checkout_markers)
 
     @staticmethod
-    def _is_purchase_route(page: Page) -> bool:
-        """判断当前页面是否处在 Epic purchase/free-checkout 路由。
-
-        参数:
-            page: 当前 Playwright 页面对象。
-
-        返回:
-            bool: URL 属于 Epic purchase 路由时返回 True。
-        """
-        current_url = (page.url or "").lower()
-        return "/purchase" in current_url or "#/free-checkout" in current_url
-
-    @staticmethod
-    def _checkout_action_button(container: PurchaseContainer):
-        """在 checkout 容器中查找可提交订单的主按钮。
-
-        参数:
-            container: Page、Frame 或 FrameLocator checkout 容器。
-
-        返回:
-            Locator: 第一个匹配 checkout 操作文案的按钮 locator。
-        """
-        button_text = re.compile(
-            r"place\s*order|confirm\s*order|complete\s*order|check\s*out|checkout|get",
-            re.IGNORECASE,
-        )
-        return container.locator("button").filter(has_text=button_text).first
-
-    @staticmethod
     async def _click_by_coordinates(page: Page, locator) -> None:
         box = await locator.bounding_box(timeout=2000)
         if not box:
@@ -939,27 +909,13 @@ class EpicGames:
         for container in containers:
             with suppress(Exception):
                 body_text = await container.locator("body").inner_text(timeout=500)
-                if (
-                    container is not page
-                    and not EpicGames._looks_like_checkout_frame(body_text)
-                    and not EpicGames._is_purchase_route(page)
-                ):
+                if not EpicGames._looks_like_checkout_frame(body_text):
                     continue
 
                 place_order_btn = container.locator("button", has_text="PLACE ORDER")
-                checkout_action_btn = EpicGames._checkout_action_button(container)
                 confirm_btn = container.locator(
                     "//button[contains(@class, 'payment-confirm__btn')]"
                 )
-
-                try:
-                    await expect(checkout_action_btn).to_be_visible(timeout=confirm_timeout)
-                    logger.debug(
-                        "✅ Found checkout action button by scanning checkout containers"
-                    )
-                    return container, checkout_action_btn
-                except AssertionError:
-                    pass
 
                 try:
                     await expect(place_order_btn).to_be_visible(timeout=place_order_timeout)
