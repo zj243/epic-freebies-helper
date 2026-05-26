@@ -1246,72 +1246,6 @@ class EpicGames:
 
         return False
 
-    @staticmethod
-    def _direct_purchase_url(promotion: PromotionGame) -> str:
-        """构造 Epic 直接 checkout 链接。
-
-        参数:
-            promotion: 当前待领取的周免商品。
-
-        返回:
-            str: 可直接进入 Epic purchase checkout 的 URL。
-        """
-        return (
-            "https://store.epicgames.com/purchase?"
-            f"offers=1-{promotion.namespace}-{promotion.id}#/purchase/payment-methods"
-        )
-
-    async def _claim_via_direct_purchase_url(
-        self, page: Page, promotion: PromotionGame
-    ) -> bool:
-        """在商品页按钮无效时改走 Epic 直接 checkout 链接。
-
-        参数:
-            page: 当前 Playwright 页面对象。
-            promotion: 当前待领取的周免商品。
-
-        返回:
-            bool: checkout 或订单历史确认领取成功时返回 True。
-        """
-        checkout_url = self._direct_purchase_url(promotion)
-        logger.warning(
-            "Purchase button produced no progress; trying direct checkout URL - "
-            "title='{}' checkout_url='{}'",
-            promotion.title,
-            checkout_url,
-        )
-
-        try:
-            await page.goto(checkout_url, wait_until="domcontentloaded", timeout=45000)
-            with suppress(Exception):
-                await page.wait_for_load_state("networkidle", timeout=8000)
-        except Exception as err:
-            logger.warning(
-                "Direct checkout navigation failed - title='{}' url='{}' err={!r}",
-                promotion.title,
-                checkout_url,
-                err,
-            )
-            await self._capture_purchase_debug(
-                page, "direct_checkout_navigation_failed", promotion.url
-            )
-            return False
-
-        if await self._handle_instant_checkout(page, promotion):
-            logger.success(
-                f"🎉 Confirmed claim via direct checkout URL - title='{promotion.title}'"
-            )
-            return True
-
-        if await self._wait_for_promotion_in_order_history(promotion):
-            logger.success(
-                f"🎉 Confirmed claim via order history after direct checkout - {promotion.url=}"
-            )
-            return True
-
-        await self._capture_purchase_debug(page, "direct_checkout_unconfirmed", promotion.url)
-        return False
-
     async def _finalize_unconfirmed_checkout(self, page: Page, promotion: PromotionGame) -> bool:
         url = promotion.url
 
@@ -1642,9 +1576,6 @@ class EpicGames:
             if "CART" in btn_text_upper:
                 logger.debug(f"🛒 Logic: Add To Cart - {url=}")
                 if not await self._click_purchase_button(page, purchase_btn, url):
-                    if await self._claim_via_direct_purchase_url(page, promotion):
-                        instant_claimed += 1
-                        continue
                     if await self._wait_for_promotion_in_order_history(promotion):
                         logger.success(
                             f"🎉 Confirmed claim via order history after cart click fallback - {url=}"
@@ -1667,9 +1598,6 @@ class EpicGames:
                 await EpicGames._handle_device_not_supported_modal(page, url, timeout_ms=5000)
 
             if not await self._click_purchase_button(page, purchase_btn, url):
-                if await self._claim_via_direct_purchase_url(page, promotion):
-                    instant_claimed += 1
-                    continue
                 if await self._wait_for_promotion_in_order_history(promotion):
                     logger.success(
                         f"🎉 Confirmed claim via order history after click fallback - {url=}"
